@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/db";
 import { accounts, sessions, users, verifications } from "@/db/schema";
+import { recordAuthServerFailure } from "@/auth/diagnostics";
 import { sendAccountEmail } from "@/lib/email";
 
 const isProductionBuild = process.env.NEXT_PHASE === "phase-production-build";
@@ -45,6 +46,11 @@ export const auth = betterAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!
     }
   } : {},
+  onAPIError: {
+    onError(error) {
+      recordAuthServerFailure(error);
+    }
+  },
   advanced: {
     useSecureCookies: process.env.NODE_ENV === "production",
     defaultCookieAttributes: {

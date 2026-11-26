@@ -1,49 +1,114 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AudioLines, ArrowLeft, ArrowRight, LoaderCircle, ShieldCheck } from "lucide-react";
 import { authClient } from "@/auth/client";
+import { AuthErrorAlert } from "@/components/auth/auth-error-alert";
+import { getAuthErrorDetails, getOAuthErrorDetails, type AuthErrorDetails } from "@/lib/auth-errors";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<AuthErrorDetails | null>(null);
   const [email, setEmail] = useState("");
   const isSignup = mode === "signup";
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const oauthError = url.searchParams.get("error");
+    if (!oauthError) return;
+
+    setError(getOAuthErrorDetails(oauthError));
+    url.searchParams.delete("error");
+    url.searchParams.delete("error_description");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
-    setError("");
+    setError(null);
     setMessage("");
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "");
     const password = String(data.get("password") ?? "");
     const invitationToken = new URLSearchParams(window.location.search).get("invite");
     const callbackURL = invitationToken ? `/invite?token=${encodeURIComponent(invitationToken)}` : "/dashboard";
-    const result = isSignup
-      ? await authClient.signUp.email({ name, email, password, callbackURL })
-      : await authClient.signIn.email({ email, password, callbackURL });
-    setLoading(false);
-    if (result.error) {
-      setError(result.error.message ?? "Unable to authenticate. Please check your details and try again.");
+
+    try {
+      const result = isSignup
+        ? await authClient.signUp.email({ name, email, password, callbackURL })
+        : await authClient.signIn.email({ email, password, callbackURL });
+      if (result.error) {
+        setError(getAuthErrorDetails(result.error, {
+          fallbackMessage: isSignup ? "We could not create your account. Please try again." : "We could not sign you in. Check your details and try again."
+        }));
+        return;
+      }
+      if (isSignup) {
+        setMessage("Check your inbox, including spam, for a verification link. You must verify your email before signing in.");
+        return;
+      }
+      router.push(invitationToken ? `/invite?token=${encodeURIComponent(invitationToken)}` : "/dashboard");
+      router.refresh();
+    } catch (cause) {
+      setError(getAuthErrorDetails(cause, {
+        fallbackMessage: isSignup ? "We could not create your account. Please try again." : "We could not sign you in. Check your details and try again."
+      }));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function resendVerification() {
+    if (!email) {
+      setError({ message: "Enter the email address for your account, then request a new verification link.", code: "AUTH_EMAIL_REQUIRED" });
       return;
     }
-    if (isSignup) {
-      setMessage("Check your inbox for a verification link. In local development, the link is printed in the server logs.");
-      return;
+    setError(null);
+    setMessage("");
+    setResendingVerification(true);
+    try {
+      const result = await authClient.sendVerificationEmail({ email, callbackURL: "/login" });
+      if (result.error) {
+        setError(getAuthErrorDetails(result.error, { fallbackMessage: "We could not send a verification link. Please try again." }));
+      } else {
+        setMessage("If this address has an unverified account, a new verification link has been sent. Check your inbox and spam folder.");
+      }
+    } catch (cause) {
+      setError(getAuthErrorDetails(cause, { fallbackMessage: "We could not send a verification link. Please try again." }));
+    } finally {
+      setResendingVerification(false);
     }
-    router.push(invitationToken ? `/invite?token=${encodeURIComponent(invitationToken)}` : "/dashboard");
-    router.refresh();
   }
 
   async function signInWithGoogle() {
-    setError("");
-    const result = await authClient.signIn.social({ provider: "google", callbackURL: "/dashboard" });
-    if (result.error) setError(result.error.message ?? "Google sign-in is not available right now.");
+    setError(null);
+    setMessage("");
+    setGoogleLoading(true);
+    const errorCallbackURL = new URL(window.location.href);
+    errorCallbackURL.searchParams.delete("error");
+    errorCallbackURL.searchParams.delete("error_description");
+
+    try {
+      const result = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/dashboard",
+        errorCallbackURL: `${errorCallbackURL.pathname}${errorCallbackURL.search}`
+      });
+      if (result.error) {
+        setError(getAuthErrorDetails(result.error, { fallbackMessage: "Google sign-in could not be started. Please try again or use email and password." }));
+      }
+    } catch (cause) {
+      setError(getAuthErrorDetails(cause, { fallbackMessage: "Google sign-in could not be started. Please try again or use email and password." }));
+    } finally {
+      setGoogleLoading(false);
+    }
   }
 
   return <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-12">
@@ -61,7 +126,9 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         <p className="mt-2 text-sm leading-6 text-muted">{isSignup ? "Set up an account, add your site and run your first evidence-based audit." : "Pick up where your last SEO session left off."}</p>
 
         {process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "true" && <>
-          <button onClick={signInWithGoogle} className="btn-secondary mt-7 w-full" type="button">Continue with Google</button>
+          <button onClick={signInWithGoogle} disabled={googleLoading || loading} className="btn-secondary mt-7 flex w-full items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60" type="button">
+            {googleLoading && <LoaderCircle size={15} className="animate-spin" />}{googleLoading ? "Connecting to Google…" : "Continue with Google"}
+          </button>
           <div className="my-5 flex items-center gap-3 text-[10px] uppercase tracking-widest text-muted"><span className="h-px flex-1 bg-border" />or use email<span className="h-px flex-1 bg-border" /></div>
         </>}
 
@@ -70,9 +137,12 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           <label className="block text-xs font-medium text-muted">Email address<input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} className="field mt-2" placeholder="you@company.com" /></label>
           <label className="block text-xs font-medium text-muted">Password<input name="password" type="password" autoComplete={isSignup ? "new-password" : "current-password"} required minLength={isSignup ? 8 : 1} maxLength={128} className="field mt-2" placeholder={isSignup ? "At least 8 characters" : "Your password"} /></label>
           {!isSignup && <div className="text-right"><Link href="/forgot-password" className="text-xs text-accent hover:underline">Forgot password?</Link></div>}
-          {error && <p role="alert" className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
+          {error && <AuthErrorAlert error={error} />}
+          {!isSignup && error?.code === "AUTH_EMAIL_NOT_VERIFIED" && <button type="button" onClick={resendVerification} disabled={resendingVerification} className="text-left text-xs text-accent hover:underline disabled:opacity-60">
+            {resendingVerification ? "Sending verification link…" : "Resend verification email"}
+          </button>}
           {message && <p role="status" className="rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs leading-5 text-accent">{message}</p>}
-          <button type="submit" disabled={loading} className="btn-primary mt-1 w-full py-3">
+          <button type="submit" disabled={loading || googleLoading} className="btn-primary mt-1 w-full py-3">
             {loading ? <LoaderCircle size={16} className="animate-spin" /> : null}{isSignup ? "Create account" : "Sign in"}{!loading && <ArrowRight size={15} />}
           </button>
         </form>

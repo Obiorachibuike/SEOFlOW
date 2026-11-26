@@ -5,7 +5,8 @@ External services are optional until their feature is enabled. Keep secrets in t
 ## Email and account auth
 
 - Core auth needs `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL`; use the same public HTTPS origin for both URLs in production.
-- Email/password registration requires verification. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and a valid `SMTP_FROM` to send verification, password-reset and invitation mail. Without SMTP, links are only printed to server logs in non-production. Production mail sending fails closed when SMTP is missing.
+- Email/password registration requires verification. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and a valid `SMTP_FROM` to send verification, password-reset and invitation mail. Without SMTP, links are only printed to server logs in non-production. Production registration and verification-email requests fail closed when SMTP is missing.
+- Authentication errors display an `AUTH_*` code and, for server responses, a reference ID. Search the Vercel function logs for that reference ID; server diagnostics classify database failures as `AUTH_DATABASE_ERROR` and mail configuration/delivery failures as `AUTH_EMAIL_DELIVERY_NOT_CONFIGURED` or `AUTH_EMAIL_DELIVERY_FAILED`. Raw stack traces and credentials are not sent to the browser.
 - Optional Google sign-in requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Register the Better Auth callback URL at `<BETTER_AUTH_URL>/api/auth/callback/google` with Google Cloud.
 
 ## Google Search Console
