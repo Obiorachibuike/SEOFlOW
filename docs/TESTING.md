@@ -11,7 +11,16 @@ npm run build
 
 Vitest tests cover deterministic SEO analysis, crawl parser/security utilities, JSON body limits, AI response schemas, secret encryption, payment primitives, DataForSEO response/normalization validation, S3 archive configuration behavior, PDF output, and project validation. Run focused tests with `npx vitest run src/lib/<module>/<name>.test.ts`.
 
-The unit suite does not replace PostgreSQL integration tests. It does not apply migrations, boot a real pg-boss worker, test all tenant authorization paths against a live database, or make paid provider requests. Run migrations and smoke-test web/worker interactions in a disposable PostgreSQL environment before rollout.
+Authentication and database coverage runs against in-process fakes and an embedded Postgres:
+
+- `src/db/auth-integration.test.ts` boots **PGlite** (real PostgreSQL compiled to WASM), applies the checked-in migrations from `drizzle/`, and exercises Better Auth end to end: signup, verification email delivery and callback, blocked sign-in before verification, session-backed sign-in, wrong-password rejection, enumeration-safe duplicate registration, password reset through the emailed token, and signup against a database that was never migrated. No production or shared database is touched.
+- `src/db/index.test.ts` covers pool configuration (missing/malformed `DATABASE_URL`, non-PostgreSQL protocols, TLS resolution incl. `sslmode` passthrough and the `DATABASE_SSL` override, pool sizing clamps) and health/schema checks with a mocked driver.
+- `src/app/api/auth/[...all]/route.test.ts` verifies the auth route wrapper: expected 4xx responses pass through untouched; unexpected/database failures become `AUTH_DATABASE_ERROR` (or the classified database code) with a reference ID; no internals reach the client.
+- `src/app/api/health/health.test.ts` covers the public and restricted health endpoints (404-unauthorized behavior, super-admin access, 503 with reference ID, missing-table reporting).
+- `src/lib/errors.test.ts`, `src/lib/logger.test.ts` cover classification, reference-ID stability across re-wraps, log redaction and structured output.
+- `src/components/auth/auth-form.test.tsx` (jsdom) covers loading termination, duplicate-submit prevention, invalid-email rejection, verification notices, reference-ID display on 5xx failures, sanitized network/server errors and Google sign-in failure paths.
+
+The integration suite does not boot a real pg-boss worker, test all tenant authorization paths against a live database, or make paid provider requests. Run migrations and smoke-test web/worker interactions in a disposable PostgreSQL environment before rollout.
 
 ## Playwright E2E
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { AppError, classifyError } from "@/lib/errors";
+import { logger, errorDiagnostics } from "@/lib/logger";
 
 const DEFAULT_JSON_BODY_LIMIT = 1_048_576;
 
@@ -17,8 +19,31 @@ export function jsonError(error: unknown) {
   if (error instanceof ZodError) {
     return NextResponse.json({ error: "The request did not pass validation.", issues: error.issues }, { status: 400 });
   }
-  console.error("Unhandled API error", error);
-  return NextResponse.json({ error: "An unexpected error occurred." }, { status: 500 });
+  if (error instanceof AppError) {
+    logger.error("API_REQUEST_FAILED", {
+      operation: error.operation,
+      code: error.code,
+      referenceId: error.referenceId,
+      statusCode: error.statusCode,
+      ...errorDiagnostics(error)
+    });
+    return NextResponse.json(
+      { error: error.message, code: error.code, referenceId: error.referenceId },
+      { status: error.statusCode }
+    );
+  }
+  const appError = classifyError(error, "http.unhandled");
+  logger.error("API_REQUEST_FAILED", {
+    operation: appError.operation,
+    code: appError.code,
+    referenceId: appError.referenceId,
+    statusCode: appError.statusCode,
+    ...errorDiagnostics(error)
+  });
+  return NextResponse.json(
+    { error: "An unexpected error occurred.", code: appError.code, referenceId: appError.referenceId },
+    { status: appError.statusCode }
+  );
 }
 
 export async function readJson(request: Request, maxBytes = DEFAULT_JSON_BODY_LIMIT): Promise<unknown> {

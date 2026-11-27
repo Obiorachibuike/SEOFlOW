@@ -32,6 +32,14 @@ SEOFlow handles account credentials, private workspace data, third-party API sec
 - Provider calls use configured endpoints and timeouts; errors returned to users are sanitized. Treat upstream HTML, structured data and AI output as untrusted. Do not render provider-supplied markup as HTML.
 - Keep checkout pricing and currencies synchronized with dashboard plans and provider price IDs/codes. Test successful, failed, duplicate and out-of-order webhook deliveries in provider test mode before launch.
 
+## Error handling, logs and diagnostics
+
+- Authentication and database failures are classified into stable codes (`DATABASE_*`, `AUTH_*`, `EMAIL_DELIVERY_ERROR`, `INTERNAL_ERROR`) with a per-failure reference ID (UUID). Clients receive only a safe message plus that ID; stack traces, SQL, connection strings, hosts, passwords and tokens never leave the server. See [errors](ERRORS.md) for the code catalogue and the reference-ID troubleshooting flow.
+- Structured JSON logs carry `referenceId`, `code`, `operation`, `requestId`, `pgSqlState` and `retryable`. Passwords, cookies, tokens, secrets, connection strings and email addresses are redacted both by field name and by value pattern; full auth request bodies are never logged.
+- Health endpoints expose no infrastructure details: `/api/health` is minimal and public; `/api/health/database` and `/api/health/auth` require the `HEALTH_DIAGNOSTICS_KEY` bearer token or a super-admin session, and return only booleans, counts and codes. Unauthenticated callers receive the same 404 as an unknown route.
+- Reference IDs are generated once per failure and preserved across re-wraps, so incident reports can point at exactly one log line.
+- Expected authentication outcomes (invalid credentials, unverified email, rate limiting) return Better Auth's normal 4xx responses without a reference ID and without leaking whether an account exists.
+
 ## Production checklist
 
 1. Set unique high-entropy `BETTER_AUTH_SECRET` and stable `SECRETS_ENCRYPTION_KEY`; store them in a secret manager.
