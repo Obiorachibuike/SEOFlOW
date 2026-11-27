@@ -43,6 +43,12 @@ Then open `NEXT_PUBLIC_APP_URL` (defaults to `http://localhost:3000`), register 
 
 `docker-compose.yml` starts PostgreSQL only. It does not start the web app, worker, mail server, or external providers. See [deployment](docs/DEPLOYMENT.md) for independent web/worker rollout and health checks, and [integration setup](docs/INTEGRATIONS.md) for credentials and provider configuration.
 
+## Reliability, health checks and error diagnostics
+
+- `GET /api/health` — public minimal liveness/database check (`{"status":"ok"}` or `503` with `code` + `referenceId`).
+- `GET /api/health/database`, `GET /api/health/auth` — detailed diagnostics (environment presence, `SELECT 1` latency, auth-schema check, pool stats). Require `Authorization: Bearer $HEALTH_DIAGNOSTICS_KEY` or a super-admin session; otherwise they return the same `404` as an unknown route.
+- Authentication and database failures are classified into stable codes (`AUTH_DATABASE_ERROR`, `DATABASE_SCHEMA_ERROR`, …) and carry a per-failure **reference ID** shown to users and written to exactly one sanitized JSON log line. See [error codes and troubleshooting](docs/ERRORS.md) for the full catalogue, health-endpoint access and how to read Vercel Runtime Logs.
+
 ## Environment and integrations
 
 Copy every deployment secret into a secret manager rather than committing `.env`. The checked-in [.env.example](.env.example) documents all supported variables. Core runtime values are `DATABASE_URL`, `BETTER_AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`, and `BETTER_AUTH_URL`. SMTP is required to deliver verification/reset/invitation mail in production.

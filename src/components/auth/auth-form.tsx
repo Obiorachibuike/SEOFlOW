@@ -12,9 +12,21 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { authClient } from "@/auth/client";
+import {
+  AUTH_REQUEST_TIMEOUT_MS,
+  EMAIL_PATTERN,
+  describeAuthError,
+  isTimeoutError,
+  withTimeout,
+} from "@/lib/client-errors";
 
 type AuthFormProps = {
   mode: "login" | "signup";
+};
+
+type AuthErrorState = {
+  message: string;
+  referenceId?: string;
 };
 
 export function AuthForm({ mode }: AuthFormProps) {
@@ -22,10 +34,13 @@ export function AuthForm({ mode }: AuthFormProps) {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<AuthErrorState | null>(null);
   const [email, setEmail] = useState("");
 
   const isSignup = mode === "signup";
+  const unexpectedFallback = isSignup
+    ? "We couldn't create your account. Please try again shortly."
+    : "We couldn't sign you in. Please try again shortly.";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,7 +48,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     if (loading) return;
 
     setLoading(true);
-    setError("");
+    setError(null);
     setMessage("");
 
     try {
@@ -43,18 +58,23 @@ export function AuthForm({ mode }: AuthFormProps) {
       const password = String(formData.get("password") ?? "");
       const normalizedEmail = email.trim().toLowerCase();
 
-      if (!normalizedEmail || !password) {
-        setError("Please enter your email address and password.");
+      if (!EMAIL_PATTERN.test(normalizedEmail)) {
+        setError({ message: "Please enter a valid email address." });
+        return;
+      }
+
+      if (!password) {
+        setError({ message: "Please enter your password." });
         return;
       }
 
       if (isSignup && name.length < 2) {
-        setError("Your name must contain at least 2 characters.");
+        setError({ message: "Your name must contain at least 2 characters." });
         return;
       }
 
-      if (isSignup && password.length < 8) {
-        setError("Your password must contain at least 8 characters.");
+      if (password.length < (isSignup ? 8 : 1)) {
+        setError({ message: "Your password must contain at least 8 characters." });
         return;
       }
 
@@ -66,29 +86,24 @@ export function AuthForm({ mode }: AuthFormProps) {
         ? `/invite?token=${encodeURIComponent(invitationToken)}`
         : "/dashboard";
 
-      const result = isSignup
-        ? await authClient.signUp.email({
-            name,
-            email: normalizedEmail,
-            password,
-            callbackURL,
-          })
-        : await authClient.signIn.email({
-            email: normalizedEmail,
-            password,
-            callbackURL,
-          });
+      const result = await withTimeout(
+        isSignup
+          ? authClient.signUp.email({
+              name,
+              email: normalizedEmail,
+              password,
+              callbackURL,
+            })
+          : authClient.signIn.email({
+              email: normalizedEmail,
+              password,
+              callbackURL,
+            }),
+        AUTH_REQUEST_TIMEOUT_MS
+      );
 
       if (result.error) {
-        console.error("SEOFlow authentication error:", result.error);
-
-        setError(
-          result.error.message ||
-            (isSignup
-              ? "Unable to create your account. Please try again."
-              : "Unable to sign in. Please check your credentials.")
-        );
-
+        setError(describeAuthError(result.error, unexpectedFallback));
         return;
       }
 
@@ -103,11 +118,17 @@ export function AuthForm({ mode }: AuthFormProps) {
       router.replace(callbackURL);
       router.refresh();
     } catch (err) {
-      console.error("SEOFlow authentication request failed:", err);
-
-      setError(
-        "We couldn't connect to the authentication service. Please try again later. If the problem continues, contact support."
-      );
+      if (isTimeoutError(err)) {
+        setError({
+          message:
+            "The request timed out. The service may be busy — please try again shortly.",
+        });
+      } else {
+        setError({
+          message:
+            "We couldn't reach the authentication service. Please check your connection and try again.",
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -117,33 +138,35 @@ export function AuthForm({ mode }: AuthFormProps) {
     if (loading) return;
 
     setLoading(true);
-    setError("");
+    setError(null);
     setMessage("");
 
     try {
-      const result = await authClient.signIn.social({
-        provider: "google",
-        callbackURL: "/dashboard",
-      });
-
-      if (result.error) {
-        console.error("Google authentication error:", result.error);
-
-        setError(
-          result.error.message ||
-            "Google sign-in is not available right now."
-        );
-
-        setLoading(false);
-      }
-      // Successful social sign-in normally redirects the browser.
-    } catch (err) {
-      console.error("Google authentication request failed:", err);
-
-      setError(
-        "Unable to connect to Google authentication. Please try again."
+      const result = await withTimeout(
+        authClient.signIn.social({
+          provider: "google",
+          callbackURL: "/dashboard",
+        }),
+        AUTH_REQUEST_TIMEOUT_MS
       );
 
+      if (result.error) {
+        setError(
+          describeAuthError(
+            result.error,
+            "Google sign-in is unavailable right now. Please try again shortly."
+          )
+        );
+        setLoading(false);
+      }
+      // Successful social sign-in normally redirects the browser, so the
+      // loading state intentionally persists until navigation happens.
+    } catch (err) {
+      setError({
+        message: isTimeoutError(err)
+          ? "The request timed out. Please try again shortly."
+          : "We couldn't reach Google sign-in. Please check your connection and try again.",
+      });
       setLoading(false);
     }
   }
@@ -284,13 +307,21 @@ export function AuthForm({ mode }: AuthFormProps) {
 
             {/* Error feedback */}
             {error && (
-              <p
+              <div
                 role="alert"
                 aria-live="assertive"
                 className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-300"
               >
-                {error}
-              </p>
+                <p>{error.message}</p>
+                {error.referenceId && (
+                  <p className="mt-2 border-t border-red-500/20 pt-2 font-mono text-[10px] leading-4 text-red-200/80">
+                    Reference ID: {error.referenceId}
+                    <span className="block text-[9px] text-red-200/60">
+                      Share this reference ID with support so we can find the exact log entry.
+                    </span>
+                  </p>
+                )}
+              </div>
             )}
 
             {/* Success feedback */}

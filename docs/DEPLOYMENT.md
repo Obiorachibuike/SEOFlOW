@@ -33,7 +33,35 @@ Use the same `BETTER_AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY` and canonical public
 - **Database:** pg-boss uses PostgreSQL. Size connection limits for web instances, workers and operator jobs. Monitor migrations, transaction latency, table growth (`rate_limit_buckets`, crawl pages/issues and usage records), disk/backup health and restore tests.
 - **Outbound network:** the web and worker need HTTPS egress to only the enabled providers and crawled public origins. Enforce egress controls in addition to application SSRF checks. Configure robots-aware crawl limits and upstream proxy timeouts.
 - **Object storage:** use a private bucket, narrow write/read/delete permissions for the app identity, HTTPS, provider-side encryption and lifecycle/retention policy. Object archival is optional; when enabled, generated PDF/CSV downloads also create database-indexed private artifacts. The artifact read path checks the expected byte size and SHA-256. Keep object and database retention policies aligned.
-- **Observability:** `/api/health` checks only database reachability. Monitor web error rate/latency and worker liveness separately. Alert on `STORAGE_*`, `SEO_DATA_PROVIDER_*`, `GOOGLE_*`, billing webhook failures and pg-boss retry/failure counts without logging secrets or raw user documents.
+- **Observability:** `/api/health` reports minimal liveness plus database reachability; `/api/health/database` and `/api/health/auth` add detailed diagnostics for authorized operators only (diagnostics key or super-admin session; otherwise 404). Monitor web error rate/latency and worker liveness separately. Alert on `STORAGE_*`, `SEO_DATA_PROVIDER_*`, `GOOGLE_*`, billing webhook failures and pg-boss retry/failure counts without logging secrets or raw user documents.
+
+## Vercel deployment (web service)
+
+Set these environment variables in the Vercel project — never in `NEXT_PUBLIC_*` beyond what the app already exposes, and never in the repository:
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Pooled provider URL. Add the provider's TLS parameters (e.g. `?sslmode=require` or `verify-full`). Point it at the **pooled** connection (e.g. Supabase pooler / Neon pooler), not the direct endpoint, for the serverless web app. |
+| `BETTER_AUTH_SECRET` | yes | High-entropy, `openssl rand -base64 32` or longer. Distinct from `SECRETS_ENCRYPTION_KEY`. |
+| `BETTER_AUTH_URL` | yes | Exact public origin, e.g. `https://<app>.vercel.app` — **never** a database URL. |
+| `NEXT_PUBLIC_APP_URL` | yes | Same public origin. |
+| `SECRETS_ENCRYPTION_KEY` | yes | Base64 32 bytes; encrypts AI/search-console credentials at rest. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | yes for production signup | Without SMTP, verification/reset emails are not delivered in production (failures are logged with `AUTH_EMAIL_DELIVERY_FAILED` but signup still succeeds). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional | Both required to enable Google sign-in; register `<origin>/api/auth/callback/google`. |
+| `HEALTH_DIAGNOSTICS_KEY` | recommended | Enables `GET /api/health/database` and `/api/health/auth` for operators via `Authorization: Bearer …`. |
+| `DATABASE_SSL` / `DATABASE_CA_CERT` | optional | TLS overrides when the URL cannot carry `sslmode` (private CA). |
+
+The **worker cannot run on Vercel** — deploy it on a persistent Node/container host with the same `DATABASE_URL`.
+
+After setting variables, trigger a redeploy. Verify with:
+
+```bash
+curl -s https://<your-deployment>/api/health                     # {"status":"ok",...}
+curl -s -H "Authorization: Bearer $HEALTH_DIAGNOSTICS_KEY" https://<your-deployment>/api/health/database
+curl -s -H "Authorization: Bearer $HEALTH_DIAGNOSTICS_KEY" https://<your-deployment>/api/health/auth
+```
+
+A green build does **not** prove a working database path. `GET /api/health` returning `200` and the sign-up/sign-in flow completing against a real browser are the required checks. See [errors](ERRORS.md) for the reference-ID troubleshooting flow and how to read Vercel Runtime Logs (Project → Logs → Runtime; each auth/database failure logs one JSON line with `referenceId`, `code`, `pgSqlState`, `operation`). Common PostgreSQL failure modes and their codes are tabulated there as well.
 
 ## Backups, upgrades and recovery
 
