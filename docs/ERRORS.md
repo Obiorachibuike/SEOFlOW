@@ -5,7 +5,7 @@
 Every unexpected failure inside SEOFlow is assigned a **reference ID** (a UUID). The same ID appears:
 
 1. In the client-facing error payload (`referenceId`), which the UI shows to the user;
-2. In exactly one structured JSON log line on the server (`referenceId` field);
+2. In the structured JSON log line(s) for that failure (`referenceId` field). One ID always maps to one failure — a provider-side line (e.g. storage) and the HTTP-layer line share the same ID;
 3. In no response that could leak internals — stack traces, SQL, connection strings and credentials are never sent to the browser.
 
 Reference IDs are generated once at the point of failure and preserved when an error is rethrown or re-wrapped, so one ID always maps to one failure.
@@ -61,14 +61,20 @@ Expected Better Auth API errors (wrong password, unverified email, rate limited)
 | `AUTH_INVALID_CREDENTIALS` | authentication | 401 | no | Email/password did not match (expected failure, no stack trace). |
 | `AUTH_EMAIL_NOT_VERIFIED` | authentication | 403 | no | Email/password sign-in attempted before verification. |
 | `AUTH_RATE_LIMITED` | authentication | 429 | yes | Too many attempts. |
-| `EMAIL_DELIVERY_ERROR` | authentication | 500 | yes | Verification/reset email could not be sent. Signup still succeeds; user can request a new link. Check SMTP. |
+| `EMAIL_DELIVERY_ERROR` | authentication | 500 | yes | Verification/reset email could not be sent. Signup still succeeds; user can request a new link. Check `EMAIL_PROVIDER` and the SMTP/SES configuration. |
+| `AWS_CONFIGURATION_ERROR` | configuration | 500 | no | AWS integration is misconfigured (region, bucket, role ARN, account id, sender identity). Check `details.reason` in the server log. |
+| `AWS_ACCESS_DENIED` | permission | 502 | no | STS AssumeRoleWithWebIdentity or an AWS API call rejected the credentials. Check the role trust policy, the OIDC provider and bucket/SES IAM permissions. |
+| `AWS_SERVICE_UNAVAILABLE` | connection | 503 | yes | AWS throttled, timed out or 5xx-failed. Retry with backoff; check the AWS service health dashboard. |
+| `S3_UPLOAD_ERROR` | storage | 502 | yes | Report archive write failed (the export itself succeeded). Check storage configuration and bucket policy. |
+| `S3_DOWNLOAD_ERROR` | storage | 502 | yes | Archived report could not be read or failed the SHA-256/size integrity check. |
+| `SES_DELIVERY_ERROR` | email | 502 | yes | SES rejected or failed to send. Check the verified sender identity, DKIM, IAM SES permissions and account sending limits. |
 | `INTERNAL_ERROR` | internal | 500 | no | Unclassified. Read the full log line for the reference ID. |
 
 ## Troubleshooting with a reference ID
 
 1. **Locate the log line.** Search runtime logs for the reference ID. On Vercel: Project → Logs (Runtime) and filter by `AUTH_` or `DATABASE_` events; locally, `npm run dev` prints one JSON object per line.
 2. **Read the classification, not the stack.** Each line carries `code`, `category`, `operation`, `pgSqlState` (when the failure came from PostgreSQL), `retryable` and `latencyMs`. The `cause` chain preserves the original driver error server-side — never copy it into chat tickets, issues or support emails if it embeds infrastructure details.
-3. **Map the code.** Use the table above. `DATABASE_SCHEMA_ERROR` → apply migrations. `DATABASE_CONNECTION_*` → network/TLS/provider. `DATABASE_POOL_EXHAUSTED` → sizing. `AUTH_CONFIGURATION_ERROR` → env. `EMAIL_DELIVERY_ERROR` → SMTP.
+3. **Map the code.** Use the table above. `DATABASE_SCHEMA_ERROR` → apply migrations. `DATABASE_CONNECTION_*` → network/TLS/provider. `DATABASE_POOL_EXHAUSTED` → sizing. `AUTH_CONFIGURATION_ERROR` → env. `EMAIL_DELIVERY_ERROR` → email provider configuration (`EMAIL_PROVIDER`). `AWS_CONFIGURATION_ERROR` → AWS env. `AWS_ACCESS_DENIED` → OIDC role trust policy / IAM permissions. `AWS_SERVICE_UNAVAILABLE` → retry/backoff and provider health. `S3_*` → storage configuration/bucket. `SES_DELIVERY_ERROR` → sender identity/DKIM/IAM.
 4. **Verify with health endpoints.** `GET /api/health` (public, minimal) confirms liveness and database reachability. `GET /api/health/database` and `GET /api/health/auth` (see below) report exactly which dependency fails, authorized with either `Authorization: Bearer <HEALTH_DIAGNOSTICS_KEY>` or a super-admin session. Unauthorized callers receive the same `404` as an unknown route.
 5. **Do not retry non-retryable codes** in loops; `retryable: false` means the same request will fail the same way until configuration or schema changes.
 

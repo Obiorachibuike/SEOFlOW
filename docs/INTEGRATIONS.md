@@ -5,7 +5,19 @@ External services are optional until their feature is enabled. Keep secrets in t
 ## Email and account auth
 
 - Core auth needs `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL`; use the same public HTTPS origin for both URLs in production.
-- Email/password registration requires verification. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and a valid `SMTP_FROM` to send verification, password-reset and invitation mail. Without SMTP, links are only printed to server logs in non-production. Production mail sending fails closed when SMTP is missing.
+- Email/password registration requires verification. Either configure SMTP or Amazon SES; without one, links are only printed to server logs in non-production. Production mail sending fails closed when nothing is configured.
+
+### SMTP (default)
+
+- Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and a valid `SMTP_FROM` to send verification, password-reset and invitation mail.
+
+### Amazon SES (alternative provider)
+
+1. Verify the sender identity in SES (domain with DKIM/SPF passing, or a verified address), in the same `AWS_REGION` the app uses.
+2. Set `EMAIL_PROVIDER=ses`, `AWS_REGION` and `SES_FROM_EMAIL` (falls back to `SMTP_FROM`). Credentials resolve exactly like S3: the Vercel AWS integration (`AWS_ROLE_ARN` + Vercel-injected `VERCEL_OIDC_TOKEN`, exchanged via STS `AssumeRoleWithWebIdentity`) or static `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`. The role needs `ses:SendEmail`/`ses:SendRawEmail` only.
+3. The account must be out of the SES sandbox (or recipients verified) to send to arbitrary addresses.
+4. There is **no silent fallback** between SMTP and SES. A SES failure is logged with `SES_DELIVERY_FAILED`/`EMAIL_DELIVERY_FAILED` and a reference ID; fix the provider rather than assume mail is flowing.
+5. SES delivery is observable: set `AWS_CLOUDWATCH_METRICS=true` to emit `EmailDeliveryFailure` metrics (see below).
 - Optional Google sign-in requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Register the Better Auth callback URL at `<BETTER_AUTH_URL>/api/auth/callback/google` with Google Cloud.
 
 ## Google Search Console
@@ -56,9 +68,27 @@ Provider webhooks—not checkout return URLs—activate or update subscriptions.
 
 ## S3-compatible report archives
 
+Two credential strategies are supported; pick one per environment.
+
+### Option 1 — Vercel AWS integration (recommended on Vercel)
+
+1. Add the AWS integration to the Vercel project. It injects `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_RESOURCE_ARN`, `AWS_ROLE_ARN` and `S3_BUCKET_NAME` as sensitive variables, and Vercel injects a per-deployment `VERCEL_OIDC_TOKEN`.
+2. The app exchanges the OIDC token for temporary credentials with STS `AssumeRoleWithWebIdentity` (`seoflow-<unix>` session, 1-hour duration, cached in-process until 5 minutes before expiry). No access keys are stored or rotated manually.
+3. The IAM role trust policy must trust Vercel's OIDC provider with the expected audience, and the role needs only `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on the report bucket/prefix (least privilege). Keep the bucket private with public access blocked, TLS required and provider-side encryption enabled.
+4. Nothing else is required — do **not** set `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` alongside the integration.
+5. If integration variables are present but the OIDC exchange cannot run (missing token, malformed role ARN, denied role), storage fails **closed** with `STORAGE_CONFIGURATION_INVALID`/`AWS_ACCESS_DENIED` — it never silently degrades to on-demand exports.
+
+### Option 2 — Static credentials (AWS or S3-compatible, e.g. MinIO)
+
 Set `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` together. `S3_ENDPOINT` is optional for AWS S3; set it to an HTTPS origin for a compatible service (development may use local HTTP). `S3_FORCE_PATH_STYLE=true` is the usual setting for MinIO and many custom endpoints; custom endpoints default to path-style. Production custom endpoints must use HTTPS.
 
-Create a private bucket and grant the app only the operations needed to put, get and delete report objects. Keep public access blocked, require TLS, enable provider-side encryption at rest, and establish an intentional retention policy. SEOFlow stores a database artifact index and serves downloads through the authorized application route, never a public bucket URL. Report data may include project URLs and technical findings. If storage variables are all blank, no S3 request is made and PDF/CSV reports are streamed without persistent object archival.
+### Behaviour and security (both options)
+
+Create a private bucket and grant the app only the operations needed to put, get and delete report objects. Keep public access blocked, require TLS, enable provider-side encryption at rest, and establish an intentional retention policy. SEOFlow stores a database artifact index and serves downloads through the authorized application route, never a public bucket URL. Report data may include project URLs and technical findings. If nothing is configured (neither strategy), no S3 request is made and PDF/CSV reports are streamed without persistent object archival. Reads verify the expected byte size and SHA-256 checksum before serving; writes are capped at 50 MB.
+
+## CloudWatch operational metrics (optional)
+
+Vercel Runtime Logs do **not** automatically appear in CloudWatch. SEOFlow can emit a small set of operational metrics explicitly: set `AWS_CLOUDWATCH_METRICS=true` (optionally `AWS_CLOUDWATCH_NAMESPACE`, default `SEOFlow`). The publisher reuses the shared AWS credential resolution (role-based on Vercel) and needs `cloudwatch:PutMetricData`. Metrics: `StorageWriteFailure`, `StorageReadFailure`, `StorageDeleteFailure`, `EmailDeliveryFailure`. It is best-effort by design — it never throws, never logs credentials, and a metrics failure cannot affect a request. For log shipping itself, use a Vercel log drain (Vercel → Settings → Log Drains) to CloudWatch Logs or a third party; that is platform configuration, not app code.
 
 ## Secrets and activation
 

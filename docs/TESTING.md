@@ -9,7 +9,7 @@ npm run test
 npm run build
 ```
 
-Vitest tests cover deterministic SEO analysis, crawl parser/security utilities, JSON body limits, AI response schemas, secret encryption, payment primitives, DataForSEO response/normalization validation, S3 archive configuration behavior, PDF output, and project validation. Run focused tests with `npx vitest run src/lib/<module>/<name>.test.ts`.
+Vitest tests cover deterministic SEO analysis, crawl parser/security utilities, JSON body limits, AI response schemas, secret encryption, payment primitives, DataForSEO response/normalization validation, S3 archive configuration and failure behavior, AWS credential-strategy resolution (Vercel OIDC role via mocked STS, static keys, fail-closed paths), the AWS error classifier, Amazon SES delivery (mocked SES with success, throttling, rejection and missing-config modes), CloudWatch metric publishing (mocked, disabled-by-default), PDF output, and project validation. Run focused tests with `npx vitest run src/lib/<module>/<name>.test.ts`.
 
 Authentication and database coverage runs against in-process fakes and an embedded Postgres:
 
@@ -44,6 +44,6 @@ For each staging environment, add/run contract checks using test credentials for
 - AI provider selection/fallback, timeout, malformed/untrusted output and accurate usage/cost accounting.
 - DataForSEO response shape, no-results/provider-error paths, rate limiting and recorded provider cost. Confirm request billing in a test provider account.
 - Stripe/Paystack price mismatch rejection, signed and invalid signatures, duplicate/out-of-order events, cancellation and renewal.
-- S3-compatible private writes/reads, object-size bounds, checksum mismatch, TLS, missing-object handling and retention.
+- S3-compatible private writes/reads, object-size bounds, checksum mismatch, TLS, missing-object handling and retention; role-based (STS) credential caching and expiry refresh; SES sandbox/denial handling; CloudWatch opt-in disabled path.
 
 Record the provider sandbox/account and observed result in deployment evidence; never claim real-provider support is operational based solely on successful compilation or unit tests.
