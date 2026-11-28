@@ -22,7 +22,21 @@ export const OPTIONAL_SERVER_ENV = [
   "HEALTH_DIAGNOSTICS_KEY",
   "DATABASE_SSL",
   "DATABASE_CA_CERT",
-  "LOG_LEVEL"
+  "LOG_LEVEL",
+  // AWS (Vercel integration or static fallback)
+  "AWS_REGION",
+  "AWS_ROLE_ARN",
+  "AWS_ACCOUNT_ID",
+  "AWS_RESOURCE_ARN",
+  "S3_BUCKET_NAME",
+  "S3_BUCKET",
+  "S3_REGION",
+  "S3_ENDPOINT",
+  "S3_ACCESS_KEY_ID",
+  "EMAIL_PROVIDER",
+  "SES_FROM_EMAIL",
+  "AWS_CLOUDWATCH_METRICS",
+  "AWS_CLOUDWATCH_NAMESPACE"
 ] as const;
 
 export type EnvPresence = Record<string, boolean>;
