@@ -46,6 +46,10 @@ Set these environment variables in the Vercel project — never in `NEXT_PUBLIC_
 | `BETTER_AUTH_URL` | yes | Exact public origin, e.g. `https://<app>.vercel.app` — **never** a database URL. |
 | `NEXT_PUBLIC_APP_URL` | yes | Same public origin. |
 | `SECRETS_ENCRYPTION_KEY` | yes | Base64 32 bytes; encrypts AI/search-console credentials at rest. |
+| `AWS_REGION` / `AWS_ACCOUNT_ID` / `AWS_RESOURCE_ARN` / `AWS_ROLE_ARN` / `S3_BUCKET_NAME` | when AWS is used | Injected by the Vercel AWS integration (sensitive). Prefer the integration over manual variables; never store the role secret in the repo. |
+| `VERCEL_OIDC_TOKEN` | automatic | Injected by Vercel per deployment when OIDC is enabled on the project; used with `AWS_ROLE_ARN` for `STS AssumeRoleWithWebIdentity`. Do not set manually. |
+| `EMAIL_PROVIDER` / `SES_FROM_EMAIL` | optional | `ses` switches account mail from SMTP to Amazon SES. SMTP keeps working when unset. See [integrations](INTEGRATIONS.md#amazon-ses-alternative-provider). |
+| `AWS_CLOUDWATCH_METRICS` / `AWS_CLOUDWATCH_NAMESPACE` | optional | `true` publishes operational metrics to CloudWatch. Disabled by default. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | yes for production signup | Without SMTP, verification/reset emails are not delivered in production (failures are logged with `AUTH_EMAIL_DELIVERY_FAILED` but signup still succeeds). |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional | Both required to enable Google sign-in; register `<origin>/api/auth/callback/google`. |
 | `HEALTH_DIAGNOSTICS_KEY` | recommended | Enables `GET /api/health/database` and `/api/health/auth` for operators via `Authorization: Bearer …`. |
@@ -62,6 +66,25 @@ curl -s -H "Authorization: Bearer $HEALTH_DIAGNOSTICS_KEY" https://<your-deploym
 ```
 
 A green build does **not** prove a working database path. `GET /api/health` returning `200` and the sign-up/sign-in flow completing against a real browser are the required checks. See [errors](ERRORS.md) for the reference-ID troubleshooting flow and how to read Vercel Runtime Logs (Project → Logs → Runtime; each auth/database failure logs one JSON line with `referenceId`, `code`, `pgSqlState`, `operation`). Common PostgreSQL failure modes and their codes are tabulated there as well.
+
+## Vercel production consolidation (canonical `seoflow`, retired duplicate `seo-fl-ow`)
+
+History: this repository was deployed on Vercel as **two** production projects from the same `main` commit — `seoflow` (`seoflow-rose.vercel.app`, full auth/URL configuration, no AWS) and `seo-fl-ow` (`seo-fl-ow.vercel.app`, an inert AWS integration and missing auth configuration). They are the same application; nothing was forked per project. The consolidation makes **`seoflow` canonical** and retires `seo-fl-ow`. See [deployment audit](DEPLOYMENT-AUDIT.md) and [migration report](MIGRATION-REPORT.md).
+
+Order of operations for an operator (safe sequence):
+
+1. **Merge** the unification PR; CI must be green.
+2. **Environment on the canonical `seoflow` project** — add what it lacks, keep what it has (values are never printed into the repository):
+   - `AWS_REGION`, `AWS_ACCOUNT_ID`, `AWS_RESOURCE_ARN`, `AWS_ROLE_ARN`, `S3_BUCKET_NAME` — attach the same AWS integration used by `seo-fl-ow` (or re-create the five variables as `sensitive`, production target).
+   - Optionally `EMAIL_PROVIDER=ses` + `SES_FROM_EMAIL` once SES is verified (SMTP continues to work unchanged until then).
+   - Optionally `AWS_CLOUDWATCH_METRICS=true` (+ `AWS_CLOUDWATCH_NAMESPACE=SEOFlow`).
+   - Keep `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL`, `DATABASE_URL`, `SECRETS_ENCRYPTION_KEY` untouched.
+3. **Redeploy `seoflow`** from merged `main` and verify: deployment state `READY`, `GET /api/health` → `200 {"status":"ok"}`, sign-in flow, and (if AWS is configured) a PDF/CSV export download. Note: Git deployments from this repo are disabled at the project level (`createDeployments: disabled`); trigger the redeploy explicitly from the Vercel dashboard/API instead of waiting for a git push.
+4. **Transition the duplicate domain** — the merged code supports a host-based redirect: set `REDIRECT_SECONDARY_HOST=seo-fl-ow.vercel.app` and `CANONICAL_APP_ORIGIN=https://seoflow-rose.vercel.app` on the `seo-fl-ow` project only and redeploy it. Every path on the duplicate then returns 308 → canonical. Remove the variables if you ever re-promote the project instead.
+5. **Retire the duplicate** when stable: verify `seo-fl-ow` serves no traffic (Vercel Analytics/Logs), confirm no password-reset/verification mail still references its origin, then delete the `seo-fl-ow` project or keep it paused as a cold standby. Deletion is irreversible for its deployment history; prefer pausing first. Do **not** archive it until step 4 has run clean for at least one full business cycle.
+6. **Rollback**: both projects run the same code, so rollback is either (a) redeploy the previous `seoflow` deployment (`dpl_4UGgdMjaozMNikVZUkRSdpGNL1gY` at the time of consolidation) on the canonical project, or (b) unset the two redirect variables on `seo-fl-ow` and re-promote it. No database state changes in either step.
+
+Both projects remain deployed during the transition — do **not** delete `seo-fl-ow` before step 5. The canonical project keeps serving `seoflow-rose.vercel.app` throughout; no DNS changes are required for the transition.
 
 ## Backups, upgrades and recovery
 

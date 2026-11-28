@@ -10,7 +10,7 @@ The app is built with Next.js App Router, strict TypeScript, Tailwind, PostgreSQ
 - Project creation, queued crawl jobs, persisted crawl progress exposed with SSE, cancellation, robot-policy-aware crawling, public-address/DNS-pinned HTTP requests and versioned technical SEO findings.
 - Evidence-linked AI recommendations and content drafts. Providers, exact model IDs, encrypted credentials, model capabilities and task routing are configured by a platform administrator; AI output is a proposal, never an automatic site change.
 - Tracked keywords, CSV exports, Search Console observations, and optional DataForSEO estimates for keyword volume/difficulty/CPC, backlink summaries and organic competitor overlap. Provider estimates are labeled separately from Search Console observations.
-- PDF/CSV audit exports. Optional AWS S3 or S3-compatible storage archives exports privately; reads are project-authorized and SHA-256 checked. Without storage credentials, exports are generated on demand and streamed to the authorized user.
+- PDF/CSV audit exports. Optional private S3 archival — Vercel AWS integration (role-based, no stored keys) or S3-compatible static credentials — with project-authorized reads and SHA-256 checks. Without configuration, exports are generated on demand and streamed to the authorized user. Amazon SES is available as an alternative to SMTP for account email (`EMAIL_PROVIDER=ses`).
 - Subscription plans, Stripe and Paystack adapters, checkout sessions, signed/idempotent webhooks and subscription-management actions.
 - Super-admin controls for provider/model routing and plan configuration; PostgreSQL-backed usage, rate-limit and audit records.
 
@@ -53,7 +53,7 @@ Then open `NEXT_PUBLIC_APP_URL` (defaults to `http://localhost:3000`), register 
 
 Copy every deployment secret into a secret manager rather than committing `.env`. The checked-in [.env.example](.env.example) documents all supported variables. Core runtime values are `DATABASE_URL`, `BETTER_AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY`, `NEXT_PUBLIC_APP_URL`, and `BETTER_AUTH_URL`. SMTP is required to deliver verification/reset/invitation mail in production.
 
-Third-party integrations are opt-in. Google sign-in, Search Console, Agnes AI and other compatible AI providers, DataForSEO, Stripe/Paystack and S3-compatible object storage each need their own account credentials and provider-side setup. The adapters validate and report configuration/provider errors, but their real-account behavior must be validated in the deployment's own staging environment before launch. No live credentials are included in this repository.
+Third-party integrations are opt-in. Google sign-in, Search Console, Agnes AI and other compatible AI providers, DataForSEO, Stripe/Paystack, Amazon SES and private S3 object storage each need their own account credentials and provider-side setup. The Vercel AWS integration is the preferred way to credential AWS (role-based OIDC); see [integration setup](docs/INTEGRATIONS.md) and [Vercel consolidation](docs/DEPLOYMENT.md). The adapters validate and report configuration/provider errors, but their real-account behavior must be validated in the deployment's own staging environment before launch. No live credentials are included in this repository.
 
 ## Common commands
 

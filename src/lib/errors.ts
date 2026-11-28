@@ -38,6 +38,13 @@ export const ERROR_CODES = {
   AUTH_EMAIL_NOT_VERIFIED: "AUTH_EMAIL_NOT_VERIFIED",
   AUTH_RATE_LIMITED: "AUTH_RATE_LIMITED",
   EMAIL_DELIVERY_ERROR: "EMAIL_DELIVERY_ERROR",
+  // AWS integrations
+  AWS_CONFIGURATION_ERROR: "AWS_CONFIGURATION_ERROR",
+  AWS_ACCESS_DENIED: "AWS_ACCESS_DENIED",
+  AWS_SERVICE_UNAVAILABLE: "AWS_SERVICE_UNAVAILABLE",
+  S3_UPLOAD_ERROR: "S3_UPLOAD_ERROR",
+  S3_DOWNLOAD_ERROR: "S3_DOWNLOAD_ERROR",
+  SES_DELIVERY_ERROR: "SES_DELIVERY_ERROR",
   // Generic
   INTERNAL_ERROR: "INTERNAL_ERROR"
 } as const;
@@ -53,6 +60,8 @@ export type ErrorCategory =
   | "schema"
   | "permission"
   | "authentication"
+  | "storage"
+  | "email"
   | "internal";
 
 export type AppErrorOptions = {
@@ -127,6 +136,12 @@ const CODE_METADATA: Record<ErrorCode, { category: ErrorCategory; statusCode: nu
   AUTH_EMAIL_NOT_VERIFIED: { category: "authentication", statusCode: 403, retryable: false },
   AUTH_RATE_LIMITED: { category: "authentication", statusCode: 429, retryable: true },
   EMAIL_DELIVERY_ERROR: { category: "authentication", statusCode: 500, retryable: true },
+  AWS_CONFIGURATION_ERROR: { category: "configuration", statusCode: 500, retryable: false },
+  AWS_ACCESS_DENIED: { category: "permission", statusCode: 502, retryable: false },
+  AWS_SERVICE_UNAVAILABLE: { category: "connection", statusCode: 503, retryable: true },
+  S3_UPLOAD_ERROR: { category: "storage", statusCode: 502, retryable: true },
+  S3_DOWNLOAD_ERROR: { category: "storage", statusCode: 502, retryable: true },
+  SES_DELIVERY_ERROR: { category: "email", statusCode: 502, retryable: true },
   INTERNAL_ERROR: { category: "internal", statusCode: 500, retryable: false }
 };
 
@@ -164,6 +179,12 @@ export const PUBLIC_MESSAGES: Record<ErrorCode, string> = {
   AUTH_EMAIL_NOT_VERIFIED: "Please verify your email address before signing in. Check your inbox for the verification link.",
   AUTH_RATE_LIMITED: "Too many attempts. Please wait a moment and try again.",
   EMAIL_DELIVERY_ERROR: "We couldn't send the email. Please try again shortly.",
+  AWS_CONFIGURATION_ERROR: "The cloud storage/email integration is not configured correctly. Please contact support and share the reference ID.",
+  AWS_ACCESS_DENIED: "The cloud integration's credentials were rejected or lack permission. Please contact support and share the reference ID.",
+  AWS_SERVICE_UNAVAILABLE: "The cloud service is temporarily unavailable. Please try again shortly.",
+  S3_UPLOAD_ERROR: "The file could not be stored. Please try again shortly.",
+  S3_DOWNLOAD_ERROR: "The stored file could not be retrieved. Please try again shortly.",
+  SES_DELIVERY_ERROR: "We couldn't send the email. Please try again shortly.",
   INTERNAL_ERROR: "An unexpected error occurred. Please try again shortly, and contact support with the reference ID if the problem continues."
 };
 

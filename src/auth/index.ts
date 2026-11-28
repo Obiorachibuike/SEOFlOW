@@ -6,7 +6,7 @@ import * as schema from "@/db/schema";
 import { accounts, sessions, users, verifications } from "@/db/schema";
 import { sendAccountEmail } from "@/lib/email";
 import { logger, redactString, errorDiagnostics } from "@/lib/logger";
-import { AppError, ERROR_CODES, PUBLIC_MESSAGES } from "@/lib/errors";
+import { AppError, ERROR_CODES, PUBLIC_MESSAGES, isAppError } from "@/lib/errors";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isProductionBuild = process.env.NEXT_PHASE === "phase-production-build";
@@ -72,10 +72,13 @@ async function sendAccountEmailSafely(
   try {
     await sendAccountEmail(input);
   } catch (error) {
+    // Preserve the provider-side reference ID so one failure traces to one ID.
+    const causeAppError = isAppError(error) ? error : undefined;
     const appError = new AppError(ERROR_CODES.EMAIL_DELIVERY_ERROR, PUBLIC_MESSAGES.EMAIL_DELIVERY_ERROR, {
       operation,
       cause: error,
-      retryable: true
+      retryable: true,
+      referenceId: causeAppError?.referenceId
     });
     logger.error("AUTH_EMAIL_DELIVERY_FAILED", {
       operation,

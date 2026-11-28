@@ -22,7 +22,10 @@
     "worker:dev": "tsx watch src/worker/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1179.0",
     "@aws-sdk/client-s3": "^3.1175.0",
+    "@aws-sdk/client-ses": "^3.1179.0",
+    "@aws-sdk/client-sts": "^3.1179.0",
     "better-auth": "^1.7.27",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",

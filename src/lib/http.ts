@@ -25,7 +25,8 @@ export function jsonError(error: unknown) {
       code: error.code,
       referenceId: error.referenceId,
       statusCode: error.statusCode,
-      ...errorDiagnostics(error)
+      ...errorDiagnostics(error),
+      ...(error.details ? { details: error.details } : {})
     });
     return NextResponse.json(
       { error: error.message, code: error.code, referenceId: error.referenceId },
